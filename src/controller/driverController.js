@@ -14,6 +14,7 @@ export const getNearbyRides = async (req, res) => {
     driver_lat = parseFloat(driver_lat);
     driver_lng = parseFloat(driver_lng);
     max_distance_km = parseFloat(max_distance_km) || 100; // default 20km
+    
 
     const { data: rides, error } = await supabase
       .from("rides")

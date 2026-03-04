@@ -82,30 +82,29 @@ export const verifyPaymentWebhook = async (req, res) => {
 
     const orderId = body?.data?.order?.order_id;
     const paymentStatus = body?.data?.payment?.payment_status;
-    const paymentId = body?.data?.payment?.cf_payment_id;
 
     if (!orderId) {
       return res.status(200).json({ ok: true });
     }
 
-    if (paymentStatus === "SUCCESS") {
+    if (paymentStatus?.toUpperCase() === "SUCCESS") {
+
       const rideId = orderId.replace("ride_", "");
 
-      const { error } = await supabase
+      console.log("Order ID:", orderId);
+      console.log("Extracted rideId:", rideId);
+
+      const { data, error } = await supabase
         .from("rides")
         .update({
           payment_status: "paid",
-          cashfree_payment_id: paymentId,
-          status: "completed",
-          paid_at: new Date(),
+          status: "completed"
         })
-        .eq("id", rideId);
+        .eq("id", rideId)
+        .select();
 
-      if (error) {
-        console.log("Update error:", error);
-      } else {
-        console.log("✅ Ride marked completed");
-      }
+      console.log("Updated rows:", data);
+      console.log("Update error:", error);
     }
 
     return res.status(200).json({ ok: true });
