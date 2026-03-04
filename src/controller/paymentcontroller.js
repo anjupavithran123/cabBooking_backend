@@ -10,16 +10,11 @@ const PAYOUT_URL = process.env.CASHFREE_PAYOUT_URL; // https://sandbox.cashfree.
 ====================================================== */
 export const createPaymentOrder = async (req, res) => {
   try {
-    console.log("STEP 1 - Request body:", req.body);
-
     const { rideId } = req.body;
 
     if (!rideId) {
-      console.log("STEP 2 - Ride ID missing");
       return res.status(400).json({ message: "Ride ID is required" });
     }
-
-    console.log("STEP 3 - Fetching ride from DB");
 
     const { data: ride, error } = await supabase
       .from("rides")
@@ -27,29 +22,21 @@ export const createPaymentOrder = async (req, res) => {
       .eq("id", rideId)
       .single();
 
-    console.log("STEP 4 - Supabase response:", ride);
-    console.log("STEP 5 - Supabase error:", error);
-
     if (error || !ride) {
       return res.status(400).json({ message: "Ride not found" });
     }
 
-    console.log("STEP 6 - Ride Fare:", ride. estimated_fare);
+    const amount = Number(ride.estimated_fare);
 
-    const amount = Number(ride. estimated_fare);
-
-    console.log("STEP 7 - Amount:", amount);
-
-    console.log("STEP 8 - Calling Cashfree...");
-
+    // ✅ IMPORTANT: include rideId inside order_id
     const response = await axios.post(
       "https://sandbox.cashfree.com/pg/orders",
       {
-        order_id: `order_${Date.now()}`,
+        order_id: `ride_${rideId}`,  // ✅ FIXED
         order_amount: amount,
         order_currency: "INR",
         customer_details: {
-          customer_id: "cust_001",
+          customer_id: ride.rider_id,
           customer_email: "test@test.com",
           customer_phone: "9999999999",
         },
@@ -64,36 +51,44 @@ export const createPaymentOrder = async (req, res) => {
       }
     );
 
-    console.log("STEP 9 - Cashfree Response:", response.data);
+    // ✅ THIS IS WHERE YOU ADD SUPABASE UPDATE
+    await supabase
+      .from("rides")
+      .update({
+        cashfree_order_id: response.data.order_id,
+        payment_session_id: response.data.payment_session_id,
+        payment_status: "pending",
+        status: "awaiting payment",
+      })
+      .eq("id", rideId);
 
-    res.json({
+    return res.json({
       payment_session_id: response.data.payment_session_id,
     });
 
   } catch (err) {
-    console.error("ERROR OCCURRED:");
     console.error(err.response?.data || err.message);
-    res.status(500).json({ message: "Payment order failed" });
+    return res.status(500).json({ message: "Payment order failed" });
   }
 };
-
 /* ======================================================
    2️⃣ VERIFY PAYMENT WEBHOOK
 ====================================================== */
 export const verifyPaymentWebhook = async (req, res) => {
   try {
-    const orderId = req.body.order?.order_id;
-    const paymentStatus = req.body.payment?.payment_status;
-    const paymentId = req.body.payment?.cf_payment_id;
+    console.log("🔥 WEBHOOK HIT");
+    console.log("Webhook Body:", req.body);
+
+    const orderId = req.body.data?.order?.order_id;
+    const paymentStatus = req.body.data?.payment?.payment_status;
+    const paymentId = req.body.data?.payment?.cf_payment_id;
 
     if (!orderId) {
       return res.status(400).json({ error: "Invalid webhook data" });
     }
 
     if (paymentStatus === "SUCCESS") {
-
-      // Extract original rideId
-      const rideId = orderId.split("_")[1];
+      const rideId = orderId.replace("ride_", "");
 
       await supabase
         .from("rides")
@@ -105,7 +100,7 @@ export const verifyPaymentWebhook = async (req, res) => {
         })
         .eq("id", rideId);
 
-      await transferToDriver(rideId);
+      console.log("✅ Ride updated to completed");
     }
 
     return res.json({ received: true });
@@ -115,7 +110,6 @@ export const verifyPaymentWebhook = async (req, res) => {
     return res.status(500).json({ error: "Webhook failed" });
   }
 };
-
 /* ======================================================
    3️⃣ TRANSFER MONEY TO DRIVER (PAYOUT)
 ====================================================== */
