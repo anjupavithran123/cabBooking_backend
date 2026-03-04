@@ -76,27 +76,22 @@ export const createPaymentOrder = async (req, res) => {
 ====================================================== */
 export const verifyPaymentWebhook = async (req, res) => {
   try {
-    console.log("🔥 WEBHOOK HIT");
+    const body = JSON.parse(req.body.toString());
 
-    const rawBody = req.body.toString();
-    const body = JSON.parse(rawBody);
+    console.log("🔥 Webhook received:", body);
 
-    console.log("Webhook Body:", body);
+    const orderId = body?.data?.order?.order_id;
+    const paymentStatus = body?.data?.payment?.payment_status;
+    const paymentId = body?.data?.payment?.cf_payment_id;
 
-    const orderId = body.data?.order?.order_id;
-    const paymentStatus = body.data?.payment?.payment_status;
-    const paymentId = body.data?.payment?.cf_payment_id;
-
-    // ✅ If test webhook (no orderId), just return 200
     if (!orderId) {
-      console.log("Test webhook received");
-      return res.status(200).json({ received: true });
+      return res.status(200).json({ ok: true });
     }
 
     if (paymentStatus === "SUCCESS") {
       const rideId = orderId.replace("ride_", "");
 
-      await supabase
+      const { error } = await supabase
         .from("rides")
         .update({
           payment_status: "paid",
@@ -106,14 +101,18 @@ export const verifyPaymentWebhook = async (req, res) => {
         })
         .eq("id", rideId);
 
-      console.log("✅ Ride updated to completed");
+      if (error) {
+        console.log("Update error:", error);
+      } else {
+        console.log("✅ Ride marked completed");
+      }
     }
 
-    return res.status(200).json({ received: true });
+    return res.status(200).json({ ok: true });
 
-  } catch (err) {
-    console.error("Webhook Error:", err.message);
-    return res.status(200).json({ handled: true }); // NEVER send 500
+  } catch (error) {
+    console.log("Webhook error:", error.message);
+    return res.status(200).json({ handled: true });
   }
 };
 /* ======================================================
