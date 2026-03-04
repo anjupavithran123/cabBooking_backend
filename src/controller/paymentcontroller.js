@@ -77,14 +77,20 @@ export const createPaymentOrder = async (req, res) => {
 export const verifyPaymentWebhook = async (req, res) => {
   try {
     console.log("🔥 WEBHOOK HIT");
-    console.log("Webhook Body:", req.body);
 
-    const orderId = req.body.data?.order?.order_id;
-    const paymentStatus = req.body.data?.payment?.payment_status;
-    const paymentId = req.body.data?.payment?.cf_payment_id;
+    const rawBody = req.body.toString();
+    const body = JSON.parse(rawBody);
 
+    console.log("Webhook Body:", body);
+
+    const orderId = body.data?.order?.order_id;
+    const paymentStatus = body.data?.payment?.payment_status;
+    const paymentId = body.data?.payment?.cf_payment_id;
+
+    // ✅ If test webhook (no orderId), just return 200
     if (!orderId) {
-      return res.status(400).json({ error: "Invalid webhook data" });
+      console.log("Test webhook received");
+      return res.status(200).json({ received: true });
     }
 
     if (paymentStatus === "SUCCESS") {
@@ -103,11 +109,11 @@ export const verifyPaymentWebhook = async (req, res) => {
       console.log("✅ Ride updated to completed");
     }
 
-    return res.json({ received: true });
+    return res.status(200).json({ received: true });
 
   } catch (err) {
     console.error("Webhook Error:", err.message);
-    return res.status(500).json({ error: "Webhook failed" });
+    return res.status(200).json({ handled: true }); // NEVER send 500
   }
 };
 /* ======================================================

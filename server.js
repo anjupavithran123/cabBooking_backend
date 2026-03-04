@@ -27,11 +27,8 @@ app.use(cors());
 /* ======================================================
    ✅ CASHFREE WEBHOOK (MUST BE BEFORE express.json)
 ====================================================== */
-app.post(
-  "/api/payment/webhook",
-  express.raw({ type: "application/json" }),
-  verifyPaymentWebhook
-);
+app.use("/api/payment/webhook", express.raw({ type: "*/*" }));
+
 
 /* ======================================================
    ✅ NORMAL JSON ROUTES
