@@ -1,20 +1,24 @@
 import axios from "axios";
 import supabase from "../config/supabase.js";
-import { calculateFare } from "../utils/fareCalculator.js";
 
-const BASE_URL = process.env.CASHFREE_BASE_URL; // https://sandbox.cashfree.com/pg
-const PAYOUT_URL = process.env.CASHFREE_PAYOUT_URL; // https://sandbox.cashfree.com/payout
+const CASHFREE_BASE_URL = "https://sandbox.cashfree.com/pg";
+const CASHFREE_PAYOUT_URL = "https://sandbox.cashfree.com/payout";
 
 /* ======================================================
    1️⃣ CREATE PAYMENT ORDER
 ====================================================== */
 export const createPaymentOrder = async (req, res) => {
   try {
+
     const { rideId } = req.body;
 
     if (!rideId) {
-      return res.status(400).json({ message: "Ride ID is required" });
+      return res.status(400).json({ message: "Ride ID required" });
     }
+
+    /* -----------------------------------
+       Get Ride
+    ----------------------------------- */
 
     const { data: ride, error } = await supabase
       .from("rides")
@@ -23,123 +27,164 @@ export const createPaymentOrder = async (req, res) => {
       .single();
 
     if (error || !ride) {
-      return res.status(400).json({ message: "Ride not found" });
+      return res.status(404).json({ message: "Ride not found" });
     }
 
     const amount = Number(ride.estimated_fare);
 
-    // ✅ IMPORTANT: include rideId inside order_id
+    /* -----------------------------------
+       Create Order ID
+    ----------------------------------- */
+
+    const orderId = `order_${rideId}_${Date.now()}`;
+
+    /* -----------------------------------
+       Call Cashfree API
+    ----------------------------------- */
+
     const response = await axios.post(
-      "https://sandbox.cashfree.com/pg/orders",
+      `${CASHFREE_BASE_URL}/orders`,
       {
-        order_id: `ride_${rideId}`,  // ✅ FIXED
+        order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
+
         customer_details: {
           customer_id: ride.rider_id,
           customer_email: "test@test.com",
-          customer_phone: "9999999999",
-        },
+          customer_phone: "9999999999"
+        }
       },
       {
         headers: {
           "x-client-id": process.env.CASHFREE_APP_ID,
           "x-client-secret": process.env.CASHFREE_SECRET_KEY,
           "x-api-version": "2022-09-01",
-          "Content-Type": "application/json",
-        },
+          "Content-Type": "application/json"
+        }
       }
     );
 
-    // ✅ THIS IS WHERE YOU ADD SUPABASE UPDATE
+    const order = response.data;
+
+    /* -----------------------------------
+       Save order in Supabase
+    ----------------------------------- */
+
     await supabase
       .from("rides")
       .update({
-        cashfree_order_id: response.data.order_id,
-        payment_session_id: response.data.payment_session_id,
-        payment_status: "pending",
-        status: "awaiting payment",
+        cashfree_order_id: orderId,
+        payment_session_id: order.payment_session_id
       })
       .eq("id", rideId);
 
-    return res.json({
-      payment_session_id: response.data.payment_session_id,
+    res.json({
+      payment_session_id: order.payment_session_id
     });
 
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    return res.status(500).json({ message: "Payment order failed" });
+    console.error("Create order error:", err.response?.data || err.message);
+    res.status(500).json({ message: "Payment order failed" });
   }
 };
+
+
 /* ======================================================
    2️⃣ VERIFY PAYMENT WEBHOOK
 ====================================================== */
+
 export const verifyPaymentWebhook = async (req, res) => {
   try {
-    const body = JSON.parse(req.body.toString());
 
-    console.log("🔥 Webhook received:", body);
+    console.log("Webhook received:", req.body);
 
-    const orderId = body?.data?.order?.order_id;
-    const paymentStatus = body?.data?.payment?.payment_status;
+    const orderId = req.body.data?.order?.order_id;
+    const paymentStatus = req.body.data?.payment?.payment_status;
+    const paymentId = req.body.data?.payment?.cf_payment_id;
 
     if (!orderId) {
-      return res.status(200).json({ ok: true });
+      return res.status(400).json({ message: "Invalid webhook data" });
     }
 
-    if (paymentStatus?.toUpperCase() === "SUCCESS") {
+    if (paymentStatus === "SUCCESS") {
 
-      const rideId = orderId.replace("ride_", "");
+      /* -----------------------------------
+         Find ride using orderId
+      ----------------------------------- */
 
-      console.log("Order ID:", orderId);
-      console.log("Extracted rideId:", rideId);
+      const { data: ride, error } = await supabase
+        .from("rides")
+        .select("*")
+        .eq("cashfree_order_id", orderId)
+        .single();
 
-      const { data, error } = await supabase
+      if (error || !ride) {
+        console.log("Ride not found for order:", orderId);
+        return res.status(404).send("Ride not found");
+      }
+
+      /* -----------------------------------
+         Update payment status
+      ----------------------------------- */
+
+      await supabase
         .from("rides")
         .update({
           payment_status: "paid",
+          cashfree_payment_id: paymentId,
+          paid_at: new Date(),
           status: "completed"
         })
-        .eq("id", rideId)
-        .select();
+        .eq("id", ride.id);
 
-      console.log("Updated rows:", data);
-      console.log("Update error:", error);
+      console.log("Payment updated for ride:", ride.id);
+
+      /* -----------------------------------
+         Transfer money to driver
+      ----------------------------------- */
+
+      await transferToDriver(ride);
+
     }
 
-    return res.status(200).json({ ok: true });
+    res.status(200).send("Webhook received");
 
-  } catch (error) {
-    console.log("Webhook error:", error.message);
-    return res.status(200).json({ handled: true });
+  } catch (err) {
+    console.error("Webhook error:", err.message);
+    res.status(500).send("Webhook failed");
   }
 };
-/* ======================================================
-   3️⃣ TRANSFER MONEY TO DRIVER (PAYOUT)
-====================================================== */
-const transferToDriver = async (rideId) => {
-  try {
-    const { data: ride } = await supabase
-      .from("rides")
-      .select("*")
-      .eq("id", rideId)
-      .single();
 
-    if (!ride) return;
+
+/* ======================================================
+   3️⃣ DRIVER PAYOUT
+====================================================== */
+
+const transferToDriver = async (ride) => {
+
+  try {
+
+    if (!ride.driver_id) {
+      console.log("No driver assigned");
+      return;
+    }
+
+    const transferId = `transfer_${ride.id}_${Date.now()}`;
 
     await axios.post(
-      `${PAYOUT_URL}/transfers`,
+      `${CASHFREE_PAYOUT_URL}/transfers`,
       {
         beneId: ride.driver_id,
         amount: ride.driver_amount,
-        transferId: `transfer_${rideId}_${Date.now()}`,
+        transferId: transferId
       },
       {
         headers: {
           "x-client-id": process.env.CASHFREE_APP_ID,
           "x-client-secret": process.env.CASHFREE_SECRET_KEY,
-          "x-api-version": "2022-09-01",
-        },
+          "x-api-version": "2022-09-01"
+        }
       }
     );
 
@@ -147,11 +192,13 @@ const transferToDriver = async (rideId) => {
       .from("rides")
       .update({
         payout_status: "success",
-        payout_reference_id: `transfer_${rideId}`,
+        payout_reference_id: transferId
       })
-      .eq("id", rideId);
+      .eq("id", ride.id);
+
+    console.log("Driver payout successful");
 
   } catch (err) {
-    console.error("Payout Error:", err.response?.data || err.message);
+    console.error("Payout error:", err.response?.data || err.message);
   }
 };
