@@ -175,3 +175,57 @@ export const updateDriverProfile = async (req, res) => {
 };
 
 
+export const getDriverLocation = async (req, res) => {
+  try {
+    const { ride_id } = req.query;
+
+    const { data, error } = await supabase
+      .from("rides")
+      .select(`
+        driver_id,
+        drivers (
+          current_lat,
+          current_lng,
+          name,
+          vehicle_number
+        )
+      `)
+      .eq("id", ride_id)
+      .single();
+
+    if (error) throw error;
+
+    res.json(data);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const completeRide = async (req, res) => {
+  try {
+    const { ride_id } = req.body;
+
+    if (!ride_id) {
+      return res.status(400).json({ error: "ride_id required" });
+    }
+
+    const { data, error } = await supabase
+      .from("rides")
+      .update({ status: "completed" })
+      .eq("id", ride_id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      message: "Ride completed successfully",
+      ride: data,
+    });
+
+  } catch (err) {
+    console.error("completeRide error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};

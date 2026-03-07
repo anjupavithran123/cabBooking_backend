@@ -44,6 +44,7 @@ export const createPaymentOrder = async (req, res) => {
 
     const response = await axios.post(
       `${CASHFREE_BASE_URL}/orders`,
+      
       {
         order_id: orderId,
         order_amount: amount,
@@ -200,5 +201,33 @@ const transferToDriver = async (ride) => {
 
   } catch (err) {
     console.error("Payout error:", err.response?.data || err.message);
+  }
+};
+
+export const completeRide = async (req, res) => {
+  try {
+    const { ride_id } = req.body;
+
+    if (!ride_id) {
+      return res.status(400).json({ error: "Missing ride_id" });
+    }
+
+    const { data, error } = await supabase
+      .from("rides")
+      .update({ status: "completed" })
+      .eq("id", ride_id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({
+      message: "Ride completed successfully",
+      ride: data,
+    });
+
+  } catch (err) {
+    console.error("completeRide error:", err);
+    res.status(500).json({ error: err.message });
   }
 };

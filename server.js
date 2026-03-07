@@ -16,7 +16,8 @@ import driverauthRoute from "./src/routes/driverauthRoutes.js";
 import userRoutes from "./src/routes/userRoutes.js";
 import rideRoute from "./src/routes/riderout.js";
 import paymentRoutes from "./src/routes/paymentRoutes.js";
-import stripeRoutes from "./src/routes/stripeRoutes.js";
+import ratingRoutes from "./src/routes/ratingRoutes.js";
+import driverBankRoutes from "./src/routes/driverBankRoutes.js";
 
 import { verifyPaymentWebhook } from "./src/controller/paymentcontroller.js";
 
@@ -45,8 +46,8 @@ app.use("/api/rides", rideRoute);
 app.use("/api/driver", driverRoutes);
 app.use("/api/driver/auth", driverauthRoute);
 app.use("/api/payment", paymentRoutes);
-app.use("/api/stripe", stripeRoutes);
-
+app.use("/api/ratings", ratingRoutes);
+app.use("/api/driver/bank", driverBankRoutes);
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {

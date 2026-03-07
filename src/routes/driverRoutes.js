@@ -3,7 +3,7 @@ import {
   getNearbyRides,
   acceptRide,
   updateDriverLocation,
-  getDriverProfile, updateDriverProfile, 
+  getDriverProfile, updateDriverProfile, getDriverLocation,completeRide,
 } from "../controller/driverController.js";
 
 const router = express.Router();
@@ -12,6 +12,8 @@ const router = express.Router();
 router.get("/rides/nearby", getNearbyRides);
 router.post("/rides/accept", acceptRide);
 router.post("/location/update", updateDriverLocation);
+router.get("/driver-location", getDriverLocation);
+router.post("/rides/complete", completeRide);
 
 // ✅ Driver profile routes
 router.get("/profile", getDriverProfile);       // fetch driver profile
